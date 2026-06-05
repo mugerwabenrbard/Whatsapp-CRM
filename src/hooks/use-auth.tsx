@@ -233,8 +233,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange((event, session) => {
       if (!mounted) return;
+
+      // Supabase silently refreshes the JWT when the tab regains focus.
+      // Profile/account data does not change — refetching here sets
+      // profileLoading=true and ripples through every form gated on it,
+      // wiping unsaved edits (e.g. WhatsApp credentials mid-entry).
+      if (event === "TOKEN_REFRESHED") {
+        return;
+      }
+
       const currentUser = session?.user ?? null;
       setUser(currentUser);
 

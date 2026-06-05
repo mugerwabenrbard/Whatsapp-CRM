@@ -54,6 +54,14 @@ const SECURITY_HEADERS = [
 ] as const;
 
 const nextConfig: NextConfig = {
+  // Allow Cloudflare/ngrok tunnel hostnames to load Next.js dev assets
+  // (/_next/webpack-hmr, etc.) when testing webhooks locally.
+  allowedDevOrigins: [
+    "against-belkin-teens-honest.trycloudflare.com",
+    "*.trycloudflare.com",
+    "*.ngrok-free.app",
+    "*.ngrok.io",
+  ],
   /**
    * Cache-Control policy.
    *

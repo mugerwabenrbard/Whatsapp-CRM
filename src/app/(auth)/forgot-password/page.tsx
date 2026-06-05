@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { AuthNavButton } from "@/components/auth/auth-nav-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,6 +21,7 @@ export default function ForgotPasswordPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  const router = useRouter();
   const supabase = createClient();
 
   const handleReset = async (e: React.FormEvent) => {
@@ -59,14 +61,14 @@ export default function ForgotPasswordPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Link href="/login">
-              <Button
-                variant="outline"
-                className="w-full border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-white"
-              >
-                Back to sign in
-              </Button>
-            </Link>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-white"
+              onClick={() => router.push("/login")}
+            >
+              Back to sign in
+            </Button>
           </CardContent>
         </Card>
       </div>
@@ -117,13 +119,13 @@ export default function ForgotPasswordPage() {
             </Button>
           </form>
 
-          <Link
+          <AuthNavButton
             href="/login"
-            className="mt-6 flex items-center justify-center gap-2 text-sm text-slate-400 hover:text-slate-300"
+            className="mt-6 flex w-full items-center justify-center gap-2 text-sm text-slate-400 hover:text-slate-300"
           >
             <ArrowLeft className="h-4 w-4" />
             Back to sign in
-          </Link>
+          </AuthNavButton>
         </CardContent>
       </Card>
     </div>

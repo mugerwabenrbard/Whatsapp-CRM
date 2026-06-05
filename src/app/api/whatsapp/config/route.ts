@@ -185,7 +185,19 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json()
-    const { phone_number_id, waba_id, access_token, verify_token, pin } = body
+    const phone_number_id =
+      typeof body.phone_number_id === 'string'
+        ? body.phone_number_id.trim()
+        : ''
+    const waba_id =
+      typeof body.waba_id === 'string' ? body.waba_id.trim() || null : null
+    const access_token =
+      typeof body.access_token === 'string' ? body.access_token.trim() : ''
+    const verify_token =
+      typeof body.verify_token === 'string'
+        ? body.verify_token.trim() || null
+        : null
+    const pin = body.pin
 
     if (!access_token || !phone_number_id) {
       return NextResponse.json(
@@ -295,30 +307,34 @@ export async function POST(request: Request) {
     const needsRegistration = !sameNumber || (typeof pin === 'string' && pin.length > 0)
     if (needsRegistration) {
       if (!pin) {
-        return NextResponse.json(
-          {
-            error:
-              'Two-step verification PIN is required to subscribe this number to wacrm. ' +
-              'Set a 6-digit PIN in Meta WhatsApp Manager → Phone Numbers → Two-step verification, then paste it below.',
-          },
-          { status: 400 }
+        // Don't block save — Meta's API Setup test numbers are often
+        // pre-registered, and production numbers can retry /register
+        // after the user adds any 6-digit PIN on a subsequent save.
+        console.warn(
+          '[whatsapp/config] Saving without /register — no PIN supplied',
         )
-      }
-      try {
-        await registerPhoneNumber({
-          phoneNumberId: phone_number_id,
-          accessToken: access_token,
-          pin,
-        })
-        registeredAt = new Date().toISOString()
-      } catch (err) {
         registrationError =
-          err instanceof Error ? err.message : 'Unknown Meta API error'
-        console.error('Phone number /register failed:', registrationError)
-        // We deliberately fall through and still save the row so the
-        // user can retry without re-entering everything. The UI
-        // surfaces `last_registration_error` so they see WHY it's
-        // not actually live yet.
+          'No PIN supplied, so phone registration was skipped. ' +
+          'Enter any 6-digit PIN (e.g. 123456) and save again to subscribe for inbound webhooks. ' +
+          'Meta creates two-step verification from that PIN on first registration — ' +
+          'you do not need to set it in WhatsApp Manager first unless 2FA is already enabled with a different PIN.'
+      } else {
+        try {
+          await registerPhoneNumber({
+            phoneNumberId: phone_number_id,
+            accessToken: access_token,
+            pin,
+          })
+          registeredAt = new Date().toISOString()
+        } catch (err) {
+          registrationError =
+            err instanceof Error ? err.message : 'Unknown Meta API error'
+          console.error('Phone number /register failed:', registrationError)
+          // We deliberately fall through and still save the row so the
+          // user can retry without re-entering everything. The UI
+          // surfaces `last_registration_error` so they see WHY it's
+          // not actually live yet.
+        }
       }
     }
 

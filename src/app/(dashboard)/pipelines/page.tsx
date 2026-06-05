@@ -27,6 +27,7 @@ import { Label } from "@/components/ui/label";
 import { GitBranch, Plus, ChevronDown, Settings } from "lucide-react";
 import { toast } from "sonner";
 import { useCan } from "@/hooks/use-can";
+import { useAuth } from "@/hooks/use-auth";
 import { GatedButton } from "@/components/ui/gated-button";
 
 // Pipeline creation is admin-class (settings-tier write under
@@ -45,6 +46,7 @@ const SPEC_DEFAULT_STAGES = [
 
 export default function PipelinesPage() {
   const supabase = createClient();
+  const { accountId, profileLoading } = useAuth();
   const canEditSettings = useCan("edit-settings");
   const canCreateDeals = useCan("send-messages");
 
@@ -105,46 +107,65 @@ export default function PipelinesPage() {
     [supabase],
   );
 
-  const seedDefaultPipeline = useCallback(async (): Promise<Pipeline | null> => {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    const user = session?.user;
-    if (!user) return null;
+  const seedDefaultPipeline = useCallback(
+    async (acctId: string, userId: string): Promise<Pipeline | null> => {
+      const { data: pipeline, error } = await supabase
+        .from("pipelines")
+        .insert({
+          user_id: userId,
+          account_id: acctId,
+          name: "Sales Pipeline",
+        })
+        .select()
+        .single();
 
-    const { data: pipeline, error } = await supabase
-      .from("pipelines")
-      .insert({ user_id: user.id, name: "Sales Pipeline" })
-      .select()
-      .single();
+      if (error || !pipeline) {
+        console.error("Failed to seed pipeline:", error?.message);
+        return null;
+      }
 
-    if (error || !pipeline) {
-      console.error("Failed to seed pipeline:", error?.message);
-      return null;
-    }
+      const stagesPayload = SPEC_DEFAULT_STAGES.map((s) => ({
+        pipeline_id: pipeline.id,
+        name: s.name,
+        color: s.color,
+        position: s.position,
+      }));
+      const { error: stagesError } = await supabase
+        .from("pipeline_stages")
+        .insert(stagesPayload);
+      if (stagesError) {
+        console.error("Failed to seed pipeline stages:", stagesError.message);
+      }
 
-    const stagesPayload = SPEC_DEFAULT_STAGES.map((s) => ({
-      pipeline_id: pipeline.id,
-      name: s.name,
-      color: s.color,
-      position: s.position,
-    }));
-    await supabase.from("pipeline_stages").insert(stagesPayload);
-
-    return pipeline as Pipeline;
-  }, [supabase]);
+      return pipeline as Pipeline;
+    },
+    [supabase],
+  );
 
   // Initial load + seed-if-empty
   useEffect(() => {
+    if (profileLoading) return;
+
     let cancelled = false;
     (async () => {
       setLoading(true);
       let list = await loadPipelines();
 
-      if (list.length === 0 && !seedAttempted.current) {
+      if (
+        list.length === 0 &&
+        !seedAttempted.current &&
+        canEditSettings &&
+        accountId
+      ) {
         seedAttempted.current = true;
-        const seeded = await seedDefaultPipeline();
-        if (seeded) list = await loadPipelines();
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        const user = session?.user;
+        if (user) {
+          const seeded = await seedDefaultPipeline(accountId, user.id);
+          if (seeded) list = await loadPipelines();
+        }
       }
 
       if (cancelled) return;
@@ -161,7 +182,14 @@ export default function PipelinesPage() {
     return () => {
       cancelled = true;
     };
-  }, [loadPipelines, seedDefaultPipeline]);
+  }, [
+    loadPipelines,
+    seedDefaultPipeline,
+    profileLoading,
+    accountId,
+    canEditSettings,
+    supabase,
+  ]);
 
   // Load stages + deals whenever selected pipeline changes.
   // Clearing on no-selection is a legitimate sync with URL/prop
@@ -244,6 +272,10 @@ export default function PipelinesPage() {
   async function handleCreatePipeline() {
     const name = newPipelineName.trim();
     if (!name) return;
+    if (!accountId) {
+      toast.error("Your profile is not linked to an account.");
+      return;
+    }
     setCreating(true);
 
     const {
@@ -257,7 +289,7 @@ export default function PipelinesPage() {
 
     const { data: pipeline, error } = await supabase
       .from("pipelines")
-      .insert({ user_id: user.id, name })
+      .insert({ user_id: user.id, account_id: accountId, name })
       .select()
       .single();
 
@@ -273,7 +305,12 @@ export default function PipelinesPage() {
       color: s.color,
       position: s.position,
     }));
-    await supabase.from("pipeline_stages").insert(stagesPayload);
+    const { error: stagesError } = await supabase
+      .from("pipeline_stages")
+      .insert(stagesPayload);
+    if (stagesError) {
+      toast.error("Pipeline created but default stages failed to save");
+    }
 
     setNewPipelineName("");
     setNewPipelineOpen(false);

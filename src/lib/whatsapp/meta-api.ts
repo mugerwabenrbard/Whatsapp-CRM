@@ -18,9 +18,62 @@ export interface MetaSendResult {
 
 export interface MetaPhoneInfo {
   id: string
-  display_phone_number: string
+  display_phone_number?: string
   verified_name?: string
   quality_rating?: string
+}
+
+function sanitizeCredential(value: string, label: string): string {
+  const trimmed = value.trim()
+  if (!trimmed) {
+    throw new Error(`${label} is required.`)
+  }
+  return trimmed
+}
+
+function isWrongPhoneNumberIdError(message: string): boolean {
+  return (
+    /nonexisting field/i.test(message) &&
+    /display_phone_number|verified_name|quality_rating/i.test(message)
+  )
+}
+
+function wrongPhoneNumberIdError(phoneNumberId: string): Error {
+  return new Error(
+    `Phone Number ID "${phoneNumberId}" is not a WhatsApp phone number. Copy the numeric Phone Number ID from Meta → WhatsApp → API Setup — not the WhatsApp Business Account ID (WABA).`,
+  )
+}
+
+/**
+ * Turn raw Meta Graph errors into actionable setup guidance. The
+ * two most common misconfigurations during first connect:
+ *   * temporary "Copy token" from API Setup (wrong type / truncated)
+ *   * WABA ID pasted into the Phone Number ID field
+ */
+function mapPhoneVerifyError(message: string, phoneNumberId: string): Error {
+  if (isWrongPhoneNumberIdError(message)) {
+    return wrongPhoneNumberIdError(phoneNumberId)
+  }
+
+  if (/malformed access token/i.test(message)) {
+    return new Error(
+      'Access token is invalid or incomplete. Generate a permanent System User token in Meta Business Settings → Users → System Users (it usually starts with "EAA…"). Do not use the temporary token from WhatsApp → API Setup.',
+    )
+  }
+
+  if (/invalid oauth access token|cannot parse access token|session has expired/i.test(message)) {
+    return new Error(
+      'Access token was rejected by Meta. Generate a new permanent System User token with whatsapp_business_messaging and whatsapp_business_management permissions.',
+    )
+  }
+
+  if (/unsupported get request|does not exist|invalid id/i.test(message)) {
+    return new Error(
+      `Meta does not recognize Phone Number ID "${phoneNumberId}". Double-check the value in Meta → WhatsApp → API Setup.`,
+    )
+  }
+
+  return new Error(message)
 }
 
 interface MetaErrorResponse {
@@ -48,21 +101,52 @@ export interface VerifyPhoneNumberArgs {
 }
 
 /**
- * Verify a Meta phone number ID by fetching its public metadata
- * (display_phone_number, verified_name, quality_rating).
+ * Verify a Meta phone number ID by fetching its public metadata.
+ *
+ * We gate on `display_phone_number` because that field only exists on
+ * WhatsApp *phone number* nodes — a WABA ID or App ID will authenticate
+ * fine on `?fields=id` but is the wrong credential for sending/receiving.
  */
 export async function verifyPhoneNumber(
   args: VerifyPhoneNumberArgs
 ): Promise<MetaPhoneInfo> {
-  const { phoneNumberId, accessToken } = args
-  const url = `${META_API_BASE}/${phoneNumberId}?fields=id,display_phone_number,verified_name,quality_rating`
-  const response = await fetch(url, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  })
-  if (!response.ok) {
-    await throwMetaError(response, `Meta API error: ${response.status}`)
+  const phoneNumberId = sanitizeCredential(args.phoneNumberId, 'Phone Number ID')
+  const accessToken = sanitizeCredential(args.accessToken, 'Access token')
+
+  const request = async (fields: string) => {
+    const url = `${META_API_BASE}/${phoneNumberId}?fields=${fields}`
+    return fetch(url, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
   }
-  return response.json()
+
+  const readMetaError = async (response: Response): Promise<string> => {
+    let message = `Meta API error: ${response.status}`
+    try {
+      const data = (await response.json()) as MetaErrorResponse
+      if (data.error?.message) message = data.error.message
+    } catch {
+      /* keep fallback */
+    }
+    return message
+  }
+
+  // Step 1 — prove this ID is a phone number, not a WABA/App ID.
+  const primary = await request('id,display_phone_number')
+  if (!primary.ok) {
+    throw mapPhoneVerifyError(await readMetaError(primary), phoneNumberId)
+  }
+
+  const info = (await primary.json()) as MetaPhoneInfo
+
+  // Step 2 — optional metadata; don't block save if Meta omits a field.
+  const extra = await request('verified_name,quality_rating')
+  if (extra.ok) {
+    const more = (await extra.json()) as Partial<MetaPhoneInfo>
+    return { ...info, ...more, id: info.id ?? phoneNumberId }
+  }
+
+  return { ...info, id: info.id ?? phoneNumberId }
 }
 
 // ============================================================

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { toast } from 'sonner';
 import {
   Eye,
@@ -41,7 +41,7 @@ export function WhatsAppConfig() {
   // context and key every read off it — so a teammate who just
   // joined an account sees the inviter's saved config without
   // having to re-enter anything.
-  const { user, accountId, loading: authLoading, profileLoading } = useAuth();
+  const { accountId, loading: authLoading, profileLoading } = useAuth();
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -59,6 +59,15 @@ export function WhatsAppConfig() {
   const [verifyToken, setVerifyToken] = useState('');
   const [pin, setPin] = useState('');
   const [tokenEdited, setTokenEdited] = useState(false);
+
+  // Guard against auth/profile refetches (e.g. tab focus token refresh)
+  // wiping credentials the user is still typing.
+  const formDirtyRef = useRef(false);
+  const loadedForAccountRef = useRef<string | null>(null);
+
+  const markFormDirty = useCallback(() => {
+    formDirtyRef.current = true;
+  }, []);
 
   // True once /register has succeeded on Meta's side (timestamp set
   // in the row). When false, the saved config is metadata-only and
@@ -84,8 +93,12 @@ export function WhatsAppConfig() {
       ? `${window.location.origin}/api/whatsapp/webhook`
       : '';
 
-  const fetchConfig = useCallback(async (acctId: string) => {
-    setLoading(true);
+  const fetchConfig = useCallback(async (
+    acctId: string,
+    opts: { background?: boolean; forceFormReset?: boolean } = {},
+  ) => {
+    const { background = false, forceFormReset = false } = opts;
+    if (!background) setLoading(true);
     try {
       // Load form values from Supabase (shows what's in DB).
       // Switched from `user_id` (which would only match the row's
@@ -103,22 +116,30 @@ export function WhatsAppConfig() {
         console.error('Failed to load config row:', error);
       }
 
+      const shouldResetForm = forceFormReset || !formDirtyRef.current;
+
       if (data) {
         setConfig(data);
-        setPhoneNumberId(data.phone_number_id || '');
-        setWabaId(data.waba_id || '');
-        setAccessToken(MASKED_TOKEN);
-        setVerifyToken('');
-        setPin('');
-        setTokenEdited(false);
+        if (shouldResetForm) {
+          setPhoneNumberId(data.phone_number_id || '');
+          setWabaId(data.waba_id || '');
+          setAccessToken(MASKED_TOKEN);
+          setVerifyToken('');
+          setPin('');
+          setTokenEdited(false);
+          formDirtyRef.current = false;
+        }
       } else {
         setConfig(null);
-        setPhoneNumberId('');
-        setWabaId('');
-        setAccessToken('');
-        setVerifyToken('');
-        setPin('');
-        setTokenEdited(false);
+        if (shouldResetForm) {
+          setPhoneNumberId('');
+          setWabaId('');
+          setAccessToken('');
+          setVerifyToken('');
+          setPin('');
+          setTokenEdited(false);
+          formDirtyRef.current = false;
+        }
       }
       // Clear any stale probe result when reloading the row.
       setRegistrationProbe(null);
@@ -151,7 +172,7 @@ export function WhatsAppConfig() {
       console.error('fetchConfig error:', err);
       toast.error('Failed to load WhatsApp configuration');
     } finally {
-      setLoading(false);
+      if (!background) setLoading(false);
     }
   }, [supabase]);
 
@@ -162,12 +183,16 @@ export function WhatsAppConfig() {
     // for the first render window and bail without ever retrying
     // once the profile arrives.
     if (authLoading || profileLoading) return;
-    if (!user || !accountId) {
+    if (!accountId) {
       setLoading(false);
       return;
     }
+    // Load once per account — not again when profileLoading flickers
+    // on silent token refresh after tab focus.
+    if (loadedForAccountRef.current === accountId) return;
+    loadedForAccountRef.current = accountId;
     fetchConfig(accountId);
-  }, [authLoading, profileLoading, user, accountId, fetchConfig]);
+  }, [authLoading, profileLoading, accountId, fetchConfig]);
 
   async function handleSave() {
     if (!phoneNumberId.trim()) {
@@ -245,7 +270,10 @@ export function WhatsAppConfig() {
         setPin('');
       }
 
-      if (accountId) await fetchConfig(accountId);
+      if (accountId) {
+        formDirtyRef.current = false;
+        await fetchConfig(accountId, { background: true, forceFormReset: true });
+      }
     } catch (err) {
       console.error('Save error:', err);
       toast.error('Failed to save configuration');
@@ -301,7 +329,9 @@ export function WhatsAppConfig() {
           { duration: 8000 },
         );
       }
-      if (accountId) await fetchConfig(accountId);
+      if (accountId) {
+        await fetchConfig(accountId, { background: true });
+      }
     } catch (err) {
       console.error('verify-registration failed:', err);
       toast.error('Could not reach the verification endpoint.');
@@ -326,11 +356,14 @@ export function WhatsAppConfig() {
       }
 
       toast.success('Configuration cleared. You can now re-enter your credentials.');
+      formDirtyRef.current = false;
+      loadedForAccountRef.current = null;
       setConfig(null);
       setPhoneNumberId('');
       setWabaId('');
       setAccessToken('');
       setVerifyToken('');
+      setPin('');
       setTokenEdited(false);
       setConnectionStatus('disconnected');
       setResetReason(null);
@@ -539,7 +572,10 @@ export function WhatsAppConfig() {
               <Input
                 placeholder="e.g. 100234567890123"
                 value={phoneNumberId}
-                onChange={(e) => setPhoneNumberId(e.target.value)}
+                onChange={(e) => {
+                  markFormDirty();
+                  setPhoneNumberId(e.target.value);
+                }}
                 className="bg-slate-800 border-slate-700 text-white placeholder:text-slate-500"
               />
             </div>
@@ -549,7 +585,10 @@ export function WhatsAppConfig() {
               <Input
                 placeholder="e.g. 100234567890456"
                 value={wabaId}
-                onChange={(e) => setWabaId(e.target.value)}
+                onChange={(e) => {
+                  markFormDirty();
+                  setWabaId(e.target.value);
+                }}
                 className="bg-slate-800 border-slate-700 text-white placeholder:text-slate-500"
               />
             </div>
@@ -562,11 +601,13 @@ export function WhatsAppConfig() {
                   placeholder="Enter your access token"
                   value={accessToken}
                   onChange={(e) => {
+                    markFormDirty();
                     setAccessToken(e.target.value);
                     setTokenEdited(true);
                   }}
                   onFocus={() => {
                     if (accessToken === MASKED_TOKEN) {
+                      markFormDirty();
                       setAccessToken('');
                       setTokenEdited(true);
                     }
@@ -593,7 +634,10 @@ export function WhatsAppConfig() {
               <Input
                 placeholder="Create a custom verify token"
                 value={verifyToken}
-                onChange={(e) => setVerifyToken(e.target.value)}
+                onChange={(e) => {
+                  markFormDirty();
+                  setVerifyToken(e.target.value);
+                }}
                 className="bg-slate-800 border-slate-700 text-white placeholder:text-slate-500"
               />
               <p className="text-xs text-slate-500">
@@ -612,24 +656,24 @@ export function WhatsAppConfig() {
                 type="text"
                 inputMode="numeric"
                 maxLength={6}
-                placeholder="6-digit PIN from Meta WhatsApp Manager"
+                placeholder="e.g. 123456"
                 value={pin}
-                onChange={(e) =>
-                  setPin(e.target.value.replace(/\D/g, '').slice(0, 6))
-                }
+                onChange={(e) => {
+                  markFormDirty();
+                  setPin(e.target.value.replace(/\D/g, '').slice(0, 6));
+                }}
                 className="bg-slate-800 border-slate-700 text-white placeholder:text-slate-500 tracking-widest"
               />
               <p className="text-xs text-slate-500 leading-relaxed">
-                Required the first time you connect a number, and any
-                time you swap to a different number. Set it in{' '}
-                <strong className="text-slate-300">
-                  Meta Business Manager → WhatsApp Accounts → Phone
-                  Numbers → Two-step verification
-                </strong>
-                . Without this PIN, Meta saves your credentials but
-                won&apos;t actually route inbound messages to wacrm —
-                the symptom that hits second numbers under a shared
-                WABA. Leave blank to keep an existing registration
+                Required to subscribe a number for inbound webhooks. On
+                first registration, enter <strong className="text-slate-300">any
+                6 digits</strong> — Meta uses it to create two-step
+                verification (you don&apos;t need to set it in WhatsApp
+                Manager first). Meta&apos;s API Setup test number is often
+                already registered; if inbound messages work after saving,
+                you can leave this blank. If you already enabled 2FA in
+                Manager with a specific PIN, use that PIN here instead.
+                Leave blank on later saves to keep an existing registration
                 untouched.
               </p>
             </div>

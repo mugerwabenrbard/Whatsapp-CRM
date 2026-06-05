@@ -2,8 +2,8 @@
 
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import { AuthNavButton } from "@/components/auth/auth-nav-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -114,12 +114,12 @@ function LoginPageInner() {
                 <Label htmlFor="password" className="text-slate-300">
                   Password
                 </Label>
-                <Link
+                <AuthNavButton
                   href="/forgot-password"
                   className="text-sm text-primary hover:text-primary/80"
                 >
                   Forgot password?
-                </Link>
+                </AuthNavButton>
               </div>
               <Input
                 id="password"
@@ -143,7 +143,7 @@ function LoginPageInner() {
 
           <p className="mt-6 text-center text-sm text-slate-400">
             Don&apos;t have an account?{" "}
-            <Link
+            <AuthNavButton
               href={
                 inviteToken
                   ? `/signup?invite=${encodeURIComponent(inviteToken)}`
@@ -152,7 +152,7 @@ function LoginPageInner() {
               className="text-primary hover:text-primary/80"
             >
               Create account
-            </Link>
+            </AuthNavButton>
           </p>
         </CardContent>
       </Card>

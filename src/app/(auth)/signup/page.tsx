@@ -1,9 +1,9 @@
 "use client";
 
 import { Suspense, useState } from "react";
-import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { AuthNavButton } from "@/components/auth/auth-nav-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -42,6 +42,7 @@ function SignupPageInner() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  const router = useRouter();
   const supabase = createClient();
 
   const handleSignup = async (e: React.FormEvent) => {
@@ -107,20 +108,20 @@ function SignupPageInner() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Link
-              href={
-                inviteToken
-                  ? `/login?invite=${encodeURIComponent(inviteToken)}`
-                  : "/login"
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-white"
+              onClick={() =>
+                router.push(
+                  inviteToken
+                    ? `/login?invite=${encodeURIComponent(inviteToken)}`
+                    : "/login",
+                )
               }
             >
-              <Button
-                variant="outline"
-                className="w-full border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-white"
-              >
-                Back to sign in
-              </Button>
-            </Link>
+              Back to sign in
+            </Button>
           </CardContent>
         </Card>
       </div>
@@ -226,7 +227,7 @@ function SignupPageInner() {
 
           <p className="mt-6 text-center text-sm text-slate-400">
             Already have an account?{" "}
-            <Link
+            <AuthNavButton
               href={
                 inviteToken
                   ? `/login?invite=${encodeURIComponent(inviteToken)}`
@@ -235,7 +236,7 @@ function SignupPageInner() {
               className="text-primary hover:text-primary/80"
             >
               Sign in
-            </Link>
+            </AuthNavButton>
           </p>
         </CardContent>
       </Card>
