@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { AuthNavButton } from "@/components/auth/auth-nav-button";
 import { Button } from "@/components/ui/button";
@@ -40,7 +40,6 @@ function LoginPageInner() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const router = useRouter();
   const supabase = createClient();
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -59,10 +58,16 @@ function LoginPageInner() {
       return;
     }
 
+    // Full navigation (not client-side router.push) so the session
+    // cookies written by signInWithPassword are included on the next
+    // request. Through an ngrok/Cloudflare tunnel a soft navigation
+    // can leave middleware seeing the session while the dashboard
+    // client's getSession() still reads stale state — bounce back
+    // to /login.
     if (inviteToken) {
-      router.push(`/join/${encodeURIComponent(inviteToken)}`);
+      window.location.assign(`/join/${encodeURIComponent(inviteToken)}`);
     } else {
-      router.push("/dashboard");
+      window.location.assign("/dashboard");
     }
   };
 

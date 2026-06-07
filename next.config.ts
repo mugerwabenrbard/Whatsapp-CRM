@@ -60,6 +60,7 @@ const nextConfig: NextConfig = {
     "against-belkin-teens-honest.trycloudflare.com",
     "*.trycloudflare.com",
     "*.ngrok-free.app",
+    "*.ngrok-free.dev",
     "*.ngrok.io",
   ],
   /**
